@@ -94,6 +94,13 @@ async def add_win_loss(user_id: int, won: bool):
 @bot.event
 async def on_ready():
     await init_db()
+    await bot.change_presence(
+        status=discord.Status.online,
+        activity=discord.Activity(
+            type=discord.ActivityType.playing,
+            name="with vibes ✨ | v!help"
+        )
+    )
     print(f"✨ {bot.user} is online and ready to vibe! ✨")
     try:
         synced = await bot.tree.sync()
@@ -344,28 +351,28 @@ async def help_command(ctx):
     """Show all commands 📖"""
     embed = discord.Embed(
         title="✨ Vibezzzzz Bot Commands",
-        description=f"Prefix: `{PREFIX}`\nEarn and gamble with **{CURRENCY}** {CURRENCY_EMOJI}",
+        description=f"Prefix: `{PREFIX}`  •  Also supports **slash commands** (`/`)\nEarn and gamble with **{CURRENCY}** {CURRENCY_EMOJI}",
         color=discord.Color.purple()
     )
     embed.add_field(
         name="💰 Economy",
-        value=f"`{PREFIX}balance` / `{PREFIX}bal` — Check your vibes\n"
-              f"`{PREFIX}daily` — Claim daily reward\n"
-              f"`{PREFIX}leaderboard` / `{PREFIX}lb` — Top players",
+        value=f"`{PREFIX}balance` / `/balance` — Check your vibes\n"
+              f"`{PREFIX}daily` / `/daily` — Claim daily reward\n"
+              f"`{PREFIX}leaderboard` / `/leaderboard` — Top players",
         inline=False
     )
     embed.add_field(
         name="🎰 Games",
-        value=f"`{PREFIX}slots <amount>` — Spin the slots!\n"
-              f"`{PREFIX}guess <1-10> <amount>` — Guess the number (5x payout)\n"
-              f"`{PREFIX}trivia` — Answer trivia for free vibes",
+        value=f"`{PREFIX}slots <amount>` / `/slots` — Spin the slots!\n"
+              f"`{PREFIX}guess <1-10> <amount>` / `/guess` — Guess the number (5x payout)\n"
+              f"`{PREFIX}trivia` / `/trivia` — Answer trivia for free vibes",
         inline=False
     )
     embed.set_footer(text="Good luck & keep vibing! ✨")
     await ctx.send(embed=embed)
 
 
-# Also support slash commands for modern feel
+# Slash commands
 @bot.tree.command(name="balance", description="Check your vibe balance ✨")
 async def slash_balance(interaction: discord.Interaction, member: discord.Member = None):
     member = member or interaction.user
@@ -459,6 +466,124 @@ async def slash_daily(interaction: discord.Interaction):
     )
     new_bal = bal + reward
     embed.add_field(name="New Balance", value=f"{new_bal:,} {CURRENCY}")
+    await interaction.response.send_message(embed=embed)
+
+
+@bot.tree.command(name="guess", description="Guess a number between 1-10! 🎲")
+@app_commands.describe(number="Your guess (1-10)", amount="How many vibes to bet")
+async def slash_guess(interaction: discord.Interaction, number: int, amount: int):
+    if number < 1 or number > 10:
+        await interaction.response.send_message("❌ Number must be between 1 and 10!", ephemeral=True)
+        return
+    if amount <= 0:
+        await interaction.response.send_message("❌ Bet must be greater than 0!", ephemeral=True)
+        return
+
+    bal, _, _, _ = await get_user(interaction.user.id)
+    if amount > bal:
+        await interaction.response.send_message(f"❌ You only have **{bal}** {CURRENCY}!", ephemeral=True)
+        return
+
+    await update_balance(interaction.user.id, -amount)
+    secret = random.randint(1, 10)
+
+    embed = discord.Embed(title="🎲 Number Guess", color=discord.Color.purple())
+    embed.add_field(name="Your Guess", value=str(number), inline=True)
+    embed.add_field(name="The Number", value=str(secret), inline=True)
+
+    if number == secret:
+        winnings = amount * 5
+        await update_balance(interaction.user.id, winnings)
+        await add_win_loss(interaction.user.id, True)
+        embed.description = f"🎉 **CORRECT!** You won **{winnings:,}** {CURRENCY}!"
+        embed.color = discord.Color.green()
+    else:
+        await add_win_loss(interaction.user.id, False)
+        embed.description = f"💔 Wrong! You lost **{amount:,}** {CURRENCY}."
+        embed.color = discord.Color.red()
+
+    new_bal, _, _, _ = await get_user(interaction.user.id)
+    embed.set_footer(text=f"New balance: {new_bal:,} {CURRENCY}")
+    await interaction.response.send_message(embed=embed)
+
+
+@bot.tree.command(name="trivia", description="Answer a trivia question for free vibes! 🧠")
+async def slash_trivia(interaction: discord.Interaction):
+    q = random.choice(TRIVIA_QUESTIONS)
+
+    embed = discord.Embed(
+        title="🧠 Trivia Time!",
+        description=q["q"],
+        color=discord.Color.blue()
+    )
+    embed.set_footer(text="You have 15 seconds to answer!")
+    await interaction.response.send_message(embed=embed)
+
+    def check(m):
+        return m.author == interaction.user and m.channel == interaction.channel
+
+    try:
+        msg = await bot.wait_for("message", check=check, timeout=15.0)
+        answer = msg.content.lower().strip()
+
+        if answer == q["a"] or q["a"] in answer:
+            reward = random.randint(25, 75)
+            await update_balance(interaction.user.id, reward)
+            await add_win_loss(interaction.user.id, True)
+            await interaction.followup.send(f"✅ Correct! You earned **{reward}** {CURRENCY} {CURRENCY_EMOJI}")
+        else:
+            await add_win_loss(interaction.user.id, False)
+            await interaction.followup.send(f"❌ Wrong! The answer was **{q['a']}**.")
+    except asyncio.TimeoutError:
+        await interaction.followup.send(f"⏰ Time's up! The answer was **{q['a']}**.")
+
+
+@bot.tree.command(name="leaderboard", description="See the richest vibers 🏆")
+async def slash_leaderboard(interaction: discord.Interaction):
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT user_id, balance FROM users ORDER BY balance DESC LIMIT 10") as cursor:
+            rows = await cursor.fetchall()
+
+    if not rows:
+        await interaction.response.send_message("No one has vibes yet!")
+        return
+
+    embed = discord.Embed(
+        title="🏆 Top Vibers Leaderboard",
+        color=discord.Color.gold()
+    )
+
+    description = ""
+    for i, (user_id, bal) in enumerate(rows, 1):
+        user = bot.get_user(user_id) or await bot.fetch_user(user_id)
+        medal = ["🥇", "🥈", "🥉"][i-1] if i <= 3 else f"**{i}.**"
+        description += f"{medal} {user.display_name if user else 'Unknown'} — **{bal:,}** {CURRENCY}\n"
+    embed.description = description
+    await interaction.response.send_message(embed=embed)
+
+
+@bot.tree.command(name="help", description="Show all commands 📖")
+async def slash_help(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="✨ Vibezzzzz Bot Commands",
+        description=f"Prefix: `{PREFIX}`  •  Also supports **slash commands** (`/`)\nEarn and gamble with **{CURRENCY}** {CURRENCY_EMOJI}",
+        color=discord.Color.purple()
+    )
+    embed.add_field(
+        name="💰 Economy",
+        value=f"`{PREFIX}balance` / `/balance` — Check your vibes\n"
+              f"`{PREFIX}daily` / `/daily` — Claim daily reward\n"
+              f"`{PREFIX}leaderboard` / `/leaderboard` — Top players",
+        inline=False
+    )
+    embed.add_field(
+        name="🎰 Games",
+        value=f"`{PREFIX}slots <amount>` / `/slots` — Spin the slots!\n"
+              f"`{PREFIX}guess <1-10> <amount>` / `/guess` — Guess the number (5x payout)\n"
+              f"`{PREFIX}trivia` / `/trivia` — Answer trivia for free vibes",
+        inline=False
+    )
+    embed.set_footer(text="Good luck & keep vibing! ✨")
     await interaction.response.send_message(embed=embed)
 
 
