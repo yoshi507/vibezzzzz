@@ -17,7 +17,12 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-bot = commands.Bot(command_prefix=PREFIX, intents=intents, help_command=None)
+# Support multiple prefixes + @mention so commands are easier to trigger
+bot = commands.Bot(
+    command_prefix=commands.when_mentioned_or(PREFIX, "v.", "vibez ", "vibe "),
+    intents=intents,
+    help_command=None
+)
 
 # Currency name
 CURRENCY = "vibes"
