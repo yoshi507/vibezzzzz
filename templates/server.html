@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}{{ guild.name }} • Vibezzzzz{% endblock %}
+{% block content %}
+<div class="flex items-center gap-4 mb-8">
+  {% if guild.icon %}
+    <img src="https://cdn.discordapp.com/icons/{{ guild.id }}/{{ guild.icon }}.png?size=80" class="w-16 h-16 rounded-xl" alt="">
+  {% else %}
+    <div class="w-16 h-16 rounded-xl bg-vibe-800 flex items-center justify-center text-3xl">🏠</div>
+  {% endif %}
+  <div>
+    <h1 class="text-3xl font-bold text-vibe-200">{{ guild.name }}</h1>
+    <p class="text-vibe-400 text-sm">Server ID: {{ guild.id }}</p>
+  </div>
+</div>
+
+<div class="grid lg:grid-cols-2 gap-6">
+  <div class="card glow rounded-2xl p-6">
+    <h2 class="text-xl font-semibold text-vibe-200 mb-4">⚙️ Server Settings</h2>
+    <form method="POST" action="/servers/{{ guild.id }}/settings" class="space-y-4">
+      <div>
+        <label class="block text-sm text-vibe-400 mb-1">Custom Prefix</label>
+        <input type="text" name="prefix" value="{{ settings.prefix or 'v!' }}" maxlength="10"
+               class="w-full bg-black/40 border border-vibe-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-vibe-500">
+        <p class="text-xs text-vibe-600 mt-1">Leave as v! for default.</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <input type="checkbox" name="gambling_enabled" id="gambling" value="1" {% if settings.gambling_enabled %}checked{% endif %}
+               class="w-4 h-4 rounded accent-vibe-500">
+        <label for="gambling" class="text-sm">Enable gambling commands (slots, guess)</label>
+      </div>
+      <div class="flex items-center gap-3">
+        <input type="checkbox" name="trivia_enabled" id="trivia" value="1" {% if settings.trivia_enabled %}checked{% endif %}
+               class="w-4 h-4 rounded accent-vibe-500">
+        <label for="trivia" class="text-sm">Enable trivia</label>
+      </div>
+      <button type="submit" class="bg-vibe-600 hover:bg-vibe-500 px-5 py-2 rounded-lg font-medium transition">
+        Save Settings
+      </button>
+    </form>
+    {% if saved %}
+    <p class="text-green-400 text-sm mt-3">✅ Settings saved!</p>
+    {% endif %}
+  </div>
+
+  <div class="card glow rounded-2xl p-6">
+    <h2 class="text-xl font-semibold text-vibe-200 mb-4">ℹ️ Info</h2>
+    <dl class="space-y-3 text-sm">
+      <div class="flex justify-between">
+        <dt class="text-vibe-400">Members (approx)</dt>
+        <dd>{{ guild.member_count or '—' }}</dd>
+      </div>
+      <div class="flex justify-between">
+        <dt class="text-vibe-400">Economy</dt>
+        <dd class="text-vibe-300">Global (shared across servers)</dd>
+      </div>
+      <div class="flex justify-between">
+        <dt class="text-vibe-400">Bot Status</dt>
+        <dd class="text-green-400">Online</dd>
+      </div>
+    </dl>
+  </div>
+</div>
+
+<div class="card glow rounded-2xl p-6 mt-6">
+  <h2 class="text-xl font-semibold text-vibe-200 mb-4">💰 Give / Remove Vibes</h2>
+  <form method="POST" action="/servers/{{ guild.id }}/givemoney" class="grid md:grid-cols-3 gap-4 items-end">
+    <div>
+      <label class="block text-sm text-vibe-400 mb-1">Discord User ID</label>
+      <input type="text" name="user_id" required placeholder="e.g. 123456789012345678"
+             class="w-full bg-black/40 border border-vibe-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-vibe-500">
+      <p class="text-xs text-vibe-600 mt-1">Right-click user → Copy User ID (enable Developer Mode)</p>
+    </div>
+    <div>
+      <label class="block text-sm text-vibe-400 mb-1">Amount (+ give / − remove)</label>
+      <input type="number" name="amount" required placeholder="500"
+             class="w-full bg-black/40 border border-vibe-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-vibe-500">
+    </div>
+    <div>
+      <button type="submit" class="w-full bg-vibe-600 hover:bg-vibe-500 px-5 py-2 rounded-lg font-medium transition">
+        Update Balance
+      </button>
+    </div>
+  </form>
+  {% if money_msg %}
+  <p class="text-green-400 text-sm mt-3">{{ money_msg }}</p>
+  {% endif %}
+</div>
+
+<div class="mt-6">
+  <a href="/servers" class="text-vibe-400 hover:text-vibe-300 text-sm">← Back to My Servers</a>
+</div>
+{% endblock %}
