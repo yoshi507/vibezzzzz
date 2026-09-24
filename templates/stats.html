@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Stats • Vibezzzzz{% endblock %}
+{% block content %}
+<h1 class="text-3xl font-bold text-vibe-200 mb-6">📊 Bot Statistics</h1>
+<div class="grid md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+  <div class="card glow rounded-2xl p-5">
+    <div class="text-vibe-400 text-sm">Players</div>
+    <div class="text-2xl font-bold mt-1">{{ stats.total_users }}</div>
+  </div>
+  <div class="card glow rounded-2xl p-5">
+    <div class="text-vibe-400 text-sm">Total Vibes</div>
+    <div class="text-2xl font-bold mt-1">{{ "{:,}".format(stats.total_vibes) }}</div>
+  </div>
+  <div class="card glow rounded-2xl p-5">
+    <div class="text-vibe-400 text-sm">Total Wins</div>
+    <div class="text-2xl font-bold mt-1 text-green-400">{{ stats.total_wins }}</div>
+  </div>
+  <div class="card glow rounded-2xl p-5">
+    <div class="text-vibe-400 text-sm">Total Losses</div>
+    <div class="text-2xl font-bold mt-1 text-red-400">{{ stats.total_losses }}</div>
+  </div>
+</div>
+<div class="card glow rounded-2xl p-6">
+  <h2 class="text-lg font-semibold text-vibe-200 mb-3">About</h2>
+  <p class="text-vibe-400 text-sm leading-relaxed">
+    These stats are live from the bot’s database. Economy is currently <strong class="text-vibe-200">global</strong>
+    (same vibes across all servers). Server-specific settings can be managed after logging in.
+  </p>
+</div>
+{% endblock %}

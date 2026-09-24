@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}My Servers • Vibezzzzz{% endblock %}
+{% block content %}
+<h1 class="text-3xl font-bold text-vibe-200 mb-2">🛡️ My Servers</h1>
+<p class="text-vibe-400 mb-6">Servers you manage where Vibezzzzz is present</p>
+{% if servers %}
+<div class="grid md:grid-cols-2 gap-4">
+  {% for s in servers %}
+  <a href="/servers/{{ s.id }}" class="card glow rounded-2xl p-5 hover:border-vibe-500/50 transition flex items-center gap-4">
+    {% if s.icon %}
+      <img src="https://cdn.discordapp.com/icons/{{ s.id }}/{{ s.icon }}.png?size=64" class="w-14 h-14 rounded-xl" alt="">
+    {% else %}
+      <div class="w-14 h-14 rounded-xl bg-vibe-800 flex items-center justify-center text-2xl">🏠</div>
+    {% endif %}
+    <div>
+      <div class="font-semibold text-lg">{{ s.name }}</div>
+      <div class="text-vibe-400 text-sm">Click to manage</div>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card glow rounded-2xl p-10 text-center">
+  <div class="text-4xl mb-3">😴</div>
+  <p class="text-vibe-300 mb-2">No manageable servers found</p>
+  <p class="text-vibe-500 text-sm">Make sure the bot is in a server where you have Administrator or Manage Server permission.</p>
+</div>
+{% endif %}
+{% endblock %}

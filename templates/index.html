@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Home • Vibezzzzz{% endblock %}
+{% block content %}
+<div class="text-center mb-12">
+  <h1 class="text-4xl md:text-5xl font-bold bg-gradient-to-r from-vibe-300 to-pink-400 bg-clip-text text-transparent mb-3">
+    Vibezzzzz Dashboard
+  </h1>
+  <p class="text-vibe-300 text-lg">Stats, leaderboards & server management</p>
+</div>
+<div class="grid md:grid-cols-3 gap-6 mb-10">
+  <div class="card glow rounded-2xl p-6 text-center">
+    <div class="text-3xl mb-2">👥</div>
+    <div class="text-3xl font-bold text-vibe-200">{{ stats.total_users | default(0) }}</div>
+    <div class="text-vibe-400 text-sm mt-1">Total Players</div>
+  </div>
+  <div class="card glow rounded-2xl p-6 text-center">
+    <div class="text-3xl mb-2">✨</div>
+    <div class="text-3xl font-bold text-vibe-200">{{ "{:,}".format(stats.total_vibes | default(0)) }}</div>
+    <div class="text-vibe-400 text-sm mt-1">Vibes in Circulation</div>
+  </div>
+  <div class="card glow rounded-2xl p-6 text-center">
+    <div class="text-3xl mb-2">🏆</div>
+    <div class="text-3xl font-bold text-vibe-200">{{ stats.total_wins | default(0) }}</div>
+    <div class="text-vibe-400 text-sm mt-1">Total Wins</div>
+  </div>
+</div>
+<div class="card glow rounded-2xl p-6">
+  <h2 class="text-xl font-semibold text-vibe-200 mb-4">🥇 Top 5 Vibers</h2>
+  {% if top_users %}
+  <div class="space-y-3">
+    {% for u in top_users %}
+    <div class="flex items-center justify-between bg-black/30 rounded-xl px-4 py-3">
+      <div class="flex items-center gap-3">
+        <span class="text-lg w-6">{% if loop.index == 1 %}🥇{% elif loop.index == 2 %}🥈{% elif loop.index == 3 %}🥉{% else %}{{ loop.index }}.{% endif %}</span>
+        <span class="font-medium">{{ u.username }}</span>
+      </div>
+      <span class="text-vibe-300 font-semibold">{{ "{:,}".format(u.balance) }} ✨</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="text-vibe-500">No players yet. Go play some games!</p>
+  {% endif %}
+  <a href="/leaderboard" class="inline-block mt-4 text-vibe-400 hover:text-vibe-300 text-sm">View full leaderboard →</a>
+</div>
+{% if not user %}
+<div class="mt-10 text-center">
+  <a href="/login" class="inline-flex items-center gap-2 bg-vibe-600 hover:bg-vibe-500 px-6 py-3 rounded-xl font-semibold transition shadow-lg shadow-vibe-900/50">
+    Login with Discord to manage your servers
+  </a>
+</div>
+{% endif %}
+{% endblock %}
