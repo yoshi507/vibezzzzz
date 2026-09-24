@@ -5,7 +5,7 @@ Runs in the same process as the bot.
 import os
 import secrets
 from typing import Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, quote
 
 import aiosqlite
 import httpx
@@ -26,7 +26,6 @@ app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY, max_age=60 * 60 * 2
 
 templates = Jinja2Templates(directory="templates")
 
-# Will be set from bot.py so we can access guilds
 bot_instance = None
 
 
@@ -184,11 +183,10 @@ async def callback(request: Request, code: str = None, error: str = None):
         )
         guilds_data = guilds_res.json() if guilds_res.status_code == 200 else []
 
-    # Keep only guilds where user has ADMIN or MANAGE_GUILD
     manageable = []
     for g in guilds_data:
         perms = int(g.get("permissions", 0))
-        if (perms & 0x8) or (perms & 0x20):  # ADMINISTRATOR or MANAGE_GUILD
+        if (perms & 0x8) or (perms & 0x20):
             manageable.append(g)
 
     request.session["user"] = {
@@ -212,7 +210,6 @@ async def servers_page(request: Request):
     if not user:
         return RedirectResponse("/login")
 
-    # Intersect user's manageable guilds with guilds the bot is actually in
     bot_guild_ids = set()
     if bot_instance:
         bot_guild_ids = {str(g.id) for g in bot_instance.guilds}
@@ -234,12 +231,11 @@ async def servers_page(request: Request):
 
 
 @app.get("/servers/{guild_id}", response_class=HTMLResponse)
-async def server_page(request: Request, guild_id: str, saved: int = 0):
+async def server_page(request: Request, guild_id: str, saved: int = 0, money_msg: str = ""):
     user = get_current_user(request)
     if not user:
         return RedirectResponse("/login")
 
-    # Verify user manages this guild
     user_guild_ids = {str(g["id"]) for g in user.get("guilds", [])}
     if guild_id not in user_guild_ids:
         raise HTTPException(403, "You don't manage this server")
@@ -256,7 +252,6 @@ async def server_page(request: Request, guild_id: str, saved: int = 0):
             }
 
     if not guild:
-        # Fallback from session data
         for g in user.get("guilds", []):
             if str(g["id"]) == guild_id:
                 guild = {"id": g["id"], "name": g["name"], "icon": g.get("icon"), "member_count": None}
@@ -272,6 +267,7 @@ async def server_page(request: Request, guild_id: str, saved: int = 0):
         "guild": guild,
         "settings": settings,
         "saved": bool(saved),
+        "money_msg": money_msg,
     })
 
 
@@ -299,3 +295,42 @@ async def save_settings(
         trivia_enabled == "1",
     )
     return RedirectResponse(f"/servers/{guild_id}?saved=1", status_code=303)
+
+
+@app.post("/servers/{guild_id}/givemoney")
+async def give_money(
+    request: Request,
+    guild_id: str,
+    user_id: str = Form(...),
+    amount: int = Form(...),
+):
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse("/login")
+
+    user_guild_ids = {str(g["id"]) for g in user.get("guilds", [])}
+    if guild_id not in user_guild_ids:
+        raise HTTPException(403, "You don't manage this server")
+
+    try:
+        target_id = int(user_id.strip())
+    except ValueError:
+        raise HTTPException(400, "Invalid user ID")
+
+    if amount == 0:
+        raise HTTPException(400, "Amount cannot be 0")
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT balance FROM users WHERE user_id = ?", (target_id,)) as cur:
+            row = await cur.fetchone()
+            if row is None:
+                await db.execute("INSERT INTO users (user_id, balance) VALUES (?, 100)", (target_id,))
+                await db.commit()
+        await db.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, target_id))
+        await db.commit()
+        async with db.execute("SELECT balance FROM users WHERE user_id = ?", (target_id,)) as cur:
+            new_bal = (await cur.fetchone())[0]
+
+    action = "Gave" if amount > 0 else "Removed"
+    msg = quote(f"✅ {action} {abs(amount):,} vibes. New balance: {new_bal:,}")
+    return RedirectResponse(f"/servers/{guild_id}?money_msg={msg}", status_code=303)
