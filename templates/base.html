@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Vibezzzzz Dashboard{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            vibe: { 50:'#faf5ff', 100:'#f3e8ff', 200:'#e9d5ff', 300:'#d8b4fe', 400:'#c084fc', 500:'#a855f7', 600:'#9333ea', 700:'#7e22ce', 800:'#6b21a8', 900:'#581c87' }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { background: linear-gradient(135deg, #0f0a1a 0%, #1a0b2e 50%, #0f0a1a 100%); min-height: 100vh; }
+    .card { background: rgba(30, 15, 50, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(168, 85, 247, 0.2); }
+    .glow { box-shadow: 0 0 20px rgba(168, 85, 247, 0.15); }
+  </style>
+</head>
+<body class="text-white font-sans">
+  <nav class="border-b border-vibe-800/50 bg-black/30 backdrop-blur sticky top-0 z-50">
+    <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+      <a href="/" class="flex items-center gap-2 text-xl font-bold text-vibe-300 hover:text-vibe-200 transition">
+        <span>✨</span> Vibezzzzz
+      </a>
+      <div class="flex items-center gap-4 text-sm">
+        <a href="/leaderboard" class="text-vibe-200 hover:text-white transition">Leaderboard</a>
+        <a href="/stats" class="text-vibe-200 hover:text-white transition">Stats</a>
+        {% if user %}
+          <a href="/servers" class="text-vibe-200 hover:text-white transition">My Servers</a>
+          <div class="flex items-center gap-2">
+            {% if user.avatar %}
+              <img src="https://cdn.discordapp.com/avatars/{{ user.id }}/{{ user.avatar }}.png?size=32" class="w-7 h-7 rounded-full" alt="">
+            {% endif %}
+            <span class="text-vibe-100">{{ user.username }}</span>
+            <a href="/logout" class="text-red-400 hover:text-red-300 text-xs ml-2">Logout</a>
+          </div>
+        {% else %}
+          <a href="/login" class="bg-vibe-600 hover:bg-vibe-500 px-4 py-1.5 rounded-lg font-medium transition">Login with Discord</a>
+        {% endif %}
+      </div>
+    </div>
+  </nav>
+
+  <main class="max-w-6xl mx-auto px-4 py-8">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="text-center text-vibe-700 text-sm py-8">
+    Vibezzzzz Dashboard • Made with 💜
+  </footer>
+</body>
+</html>
