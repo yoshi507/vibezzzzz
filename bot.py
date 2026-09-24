@@ -44,14 +44,12 @@ TRIVIA_QUESTIONS = [
 ]
 DB_PATH = "vibezzzzz.db"
 
-
 async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("""CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY, balance INTEGER DEFAULT 100,
             last_daily TEXT, wins INTEGER DEFAULT 0, losses INTEGER DEFAULT 0)""")
         await db.commit()
-
 
 async def get_user(user_id: int):
     async with aiosqlite.connect(DB_PATH) as db:
@@ -63,45 +61,31 @@ async def get_user(user_id: int):
                 return 100, None, 0, 0
             return row
 
-
 async def update_balance(user_id: int, amount: int):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
         await db.commit()
 
-
 async def set_daily(user_id: int):
-    now = datetime.utcnow().isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("UPDATE users SET last_daily = ? WHERE user_id = ?", (now, user_id))
+        await db.execute("UPDATE users SET last_daily = ? WHERE user_id = ?", (datetime.utcnow().isoformat(), user_id))
         await db.commit()
-
 
 async def add_win_loss(user_id: int, won: bool):
     async with aiosqlite.connect(DB_PATH) as db:
-        if won:
-            await db.execute("UPDATE users SET wins = wins + 1 WHERE user_id = ?", (user_id,))
-        else:
-            await db.execute("UPDATE users SET losses = losses + 1 WHERE user_id = ?", (user_id,))
+        col = "wins" if won else "losses"
+        await db.execute(f"UPDATE users SET {col} = {col} + 1 WHERE user_id = ?", (user_id,))
         await db.commit()
-
 
 async def is_feature_enabled(guild_id, feature: str) -> bool:
     if guild_id is None:
         return True
     async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
-            "SELECT gambling_enabled, trivia_enabled FROM guild_settings WHERE guild_id = ?", (guild_id,)
-        ) as cur:
+        async with db.execute("SELECT gambling_enabled, trivia_enabled FROM guild_settings WHERE guild_id = ?", (guild_id,)) as cur:
             row = await cur.fetchone()
             if not row:
                 return True
-            if feature == "gambling":
-                return bool(row[0])
-            if feature == "trivia":
-                return bool(row[1])
-    return True
-
+            return bool(row[0] if feature == "gambling" else row[1])
 
 @bot.event
 async def on_ready():
@@ -111,10 +95,7 @@ async def on_ready():
             guild_id INTEGER PRIMARY KEY, prefix TEXT DEFAULT 'v!',
             gambling_enabled INTEGER DEFAULT 1, trivia_enabled INTEGER DEFAULT 1)""")
         await db.commit()
-    await bot.change_presence(
-        status=discord.Status.online,
-        activity=discord.Activity(type=discord.ActivityType.playing, name="with vibes ✨ | v!help")
-    )
+    await bot.change_presence(status=discord.Status.online, activity=discord.Activity(type=discord.ActivityType.playing, name="with vibes ✨ | v!help"))
     print(f"✨ {bot.user} is online and ready to vibe! ✨")
     try:
         synced = await bot.tree.sync()
@@ -127,12 +108,10 @@ async def on_ready():
             from web import app as web_app, set_bot
             set_bot(bot)
             config = uvicorn.Config(web_app, host=DASHBOARD_HOST, port=DASHBOARD_PORT, log_level="info")
-            server = uvicorn.Server(config)
-            asyncio.create_task(server.serve())
+            asyncio.create_task(uvicorn.Server(config).serve())
             print(f"🌐 Dashboard running at http://{DASHBOARD_HOST}:{DASHBOARD_PORT}")
         except Exception as e:
             print(f"⚠️ Dashboard failed to start: {e}")
-
 
 @bot.command(name="balance", aliases=["bal", "vibes"])
 async def balance(ctx, member: discord.Member = None):
@@ -145,7 +124,6 @@ async def balance(ctx, member: discord.Member = None):
     embed.set_thumbnail(url=member.display_avatar.url)
     await ctx.send(embed=embed)
 
-
 @bot.command(name="daily")
 @commands.cooldown(1, 86400, commands.BucketType.user)
 async def daily(ctx):
@@ -157,44 +135,31 @@ async def daily(ctx):
     embed.add_field(name="New Balance", value=f"{bal + reward:,} {CURRENCY}")
     await ctx.send(embed=embed)
 
-
 @daily.error
 async def daily_error(ctx, error):
     if isinstance(error, commands.CommandOnCooldown):
-        hours = int(error.retry_after // 3600)
-        minutes = int((error.retry_after % 3600) // 60)
-        await ctx.send(f"⏳ You already claimed your daily! Come back in **{hours}h {minutes}m**.")
-
+        h, m = int(error.retry_after // 3600), int((error.retry_after % 3600) // 60)
+        await ctx.send(f"⏳ Come back in **{h}h {m}m**.")
 
 @bot.command(name="slots")
 @commands.cooldown(1, 3, commands.BucketType.user)
 async def slots(ctx, amount: int):
     if not await is_feature_enabled(ctx.guild.id if ctx.guild else None, "gambling"):
-        await ctx.send("🚫 Gambling is disabled on this server.")
-        return
+        return await ctx.send("🚫 Gambling is disabled on this server.")
     if amount <= 0:
-        await ctx.send("❌ Bet must be greater than 0!")
-        return
+        return await ctx.send("❌ Bet must be > 0!")
     bal, _, _, _ = await get_user(ctx.author.id)
     if amount > bal:
-        await ctx.send(f"❌ You only have **{bal}** {CURRENCY}!")
-        return
+        return await ctx.send(f"❌ You only have **{bal}** {CURRENCY}!")
     await update_balance(ctx.author.id, -amount)
-    reel1 = random.choices(SLOT_SYMBOLS, weights=SLOT_WEIGHTS, k=1)[0]
-    reel2 = random.choices(SLOT_SYMBOLS, weights=SLOT_WEIGHTS, k=1)[0]
-    reel3 = random.choices(SLOT_SYMBOLS, weights=SLOT_WEIGHTS, k=1)[0]
-    result = f"| {reel1} | {reel2} | {reel3} |"
-    multiplier = 0
-    if reel1 == reel2 == reel3:
-        multiplier = 50 if reel1 == "7️⃣" else (20 if reel1 == "💎" else 10)
-    elif reel1 == reel2 or reel2 == reel3 or reel1 == reel3:
-        multiplier = 2
-    winnings = amount * multiplier
-    embed = discord.Embed(title="🎰 Vibezzzzz Slots", description=f"**{result}**", color=discord.Color.purple())
-    if multiplier > 0:
-        await update_balance(ctx.author.id, winnings)
+    r1, r2, r3 = [random.choices(SLOT_SYMBOLS, weights=SLOT_WEIGHTS, k=1)[0] for _ in range(3)]
+    mult = 50 if r1 == r2 == r3 == "7️⃣" else (20 if r1 == r2 == r3 == "💎" else (10 if r1 == r2 == r3 else (2 if r1 == r2 or r2 == r3 or r1 == r3 else 0)))
+    win = amount * mult
+    embed = discord.Embed(title="🎰 Vibezzzzz Slots", description=f"**| {r1} | {r2} | {r3} |**", color=discord.Color.purple())
+    if mult:
+        await update_balance(ctx.author.id, win)
         await add_win_loss(ctx.author.id, True)
-        embed.add_field(name="🎉 YOU WON!", value=f"**+{winnings:,}** {CURRENCY} (x{multiplier})")
+        embed.add_field(name="🎉 YOU WON!", value=f"**+{win:,}** {CURRENCY} (x{mult})")
         embed.color = discord.Color.green()
     else:
         await add_win_loss(ctx.author.id, False)
@@ -203,360 +168,256 @@ async def slots(ctx, amount: int):
     new_bal, _, _, _ = await get_user(ctx.author.id)
     embed.set_footer(text=f"New balance: {new_bal:,} {CURRENCY}")
     await ctx.send(embed=embed)
-
 
 @slots.error
 async def slots_error(ctx, error):
     if isinstance(error, commands.MissingRequiredArgument):
         await ctx.send(f"❌ Usage: `{PREFIX}slots <amount>`")
-    elif isinstance(error, commands.BadArgument):
-        await ctx.send("❌ Amount must be a number!")
     elif isinstance(error, commands.CommandOnCooldown):
-        await ctx.send(f"⏳ Slow down! Try again in {error.retry_after:.1f}s.")
-
+        await ctx.send(f"⏳ Slow down! {error.retry_after:.1f}s")
 
 @bot.command(name="guess")
 @commands.cooldown(1, 5, commands.BucketType.user)
 async def guess(ctx, number: int, amount: int):
     if not await is_feature_enabled(ctx.guild.id if ctx.guild else None, "gambling"):
-        await ctx.send("🚫 Gambling is disabled on this server.")
-        return
-    if number < 1 or number > 10:
-        await ctx.send("❌ Number must be between 1 and 10!")
-        return
-    if amount <= 0:
-        await ctx.send("❌ Bet must be greater than 0!")
-        return
+        return await ctx.send("🚫 Gambling is disabled on this server.")
+    if not 1 <= number <= 10 or amount <= 0:
+        return await ctx.send("❌ Number 1-10 and bet > 0 required")
     bal, _, _, _ = await get_user(ctx.author.id)
     if amount > bal:
-        await ctx.send(f"❌ You only have **{bal}** {CURRENCY}!")
-        return
+        return await ctx.send(f"❌ You only have **{bal}** {CURRENCY}!")
     await update_balance(ctx.author.id, -amount)
     secret = random.randint(1, 10)
     embed = discord.Embed(title="🎲 Number Guess", color=discord.Color.purple())
     embed.add_field(name="Your Guess", value=str(number), inline=True)
     embed.add_field(name="The Number", value=str(secret), inline=True)
     if number == secret:
-        winnings = amount * 5
-        await update_balance(ctx.author.id, winnings)
+        await update_balance(ctx.author.id, amount * 5)
         await add_win_loss(ctx.author.id, True)
-        embed.description = f"🎉 **CORRECT!** You won **{winnings:,}** {CURRENCY}!"
+        embed.description = f"🎉 **CORRECT!** Won **{amount*5:,}** {CURRENCY}!"
         embed.color = discord.Color.green()
     else:
         await add_win_loss(ctx.author.id, False)
-        embed.description = f"💔 Wrong! You lost **{amount:,}** {CURRENCY}."
+        embed.description = f"💔 Wrong! Lost **{amount:,}** {CURRENCY}."
         embed.color = discord.Color.red()
     new_bal, _, _, _ = await get_user(ctx.author.id)
     embed.set_footer(text=f"New balance: {new_bal:,} {CURRENCY}")
     await ctx.send(embed=embed)
 
-
 @guess.error
 async def guess_error(ctx, error):
-    if isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send(f"❌ Usage: `{PREFIX}guess <number 1-10> <bet amount>`")
-    elif isinstance(error, commands.BadArgument):
-        await ctx.send("❌ Both number and amount must be numbers!")
-    elif isinstance(error, commands.CommandOnCooldown):
-        await ctx.send(f"⏳ Slow down! Try again in {error.retry_after:.1f}s.")
-
+    if isinstance(error, (commands.MissingRequiredArgument, commands.BadArgument)):
+        await ctx.send(f"❌ Usage: `{PREFIX}guess <1-10> <bet>`")
 
 @bot.command(name="trivia")
 @commands.cooldown(1, 10, commands.BucketType.user)
 async def trivia(ctx):
     if not await is_feature_enabled(ctx.guild.id if ctx.guild else None, "trivia"):
-        await ctx.send("🚫 Trivia is disabled on this server.")
-        return
+        return await ctx.send("🚫 Trivia is disabled on this server.")
     q = random.choice(TRIVIA_QUESTIONS)
-    embed = discord.Embed(title="🧠 Trivia Time!", description=q["q"], color=discord.Color.blue())
-    embed.set_footer(text="You have 15 seconds to answer!")
-    await ctx.send(embed=embed)
-    def check(m):
-        return m.author == ctx.author and m.channel == ctx.channel
+    await ctx.send(embed=discord.Embed(title="🧠 Trivia Time!", description=q["q"], color=discord.Color.blue()).set_footer(text="15 seconds!"))
     try:
-        msg = await bot.wait_for("message", check=check, timeout=15.0)
-        answer = msg.content.lower().strip()
-        if answer == q["a"] or q["a"] in answer:
+        msg = await bot.wait_for("message", check=lambda m: m.author == ctx.author and m.channel == ctx.channel, timeout=15.0)
+        if q["a"] in msg.content.lower():
             reward = random.randint(25, 75)
             await update_balance(ctx.author.id, reward)
             await add_win_loss(ctx.author.id, True)
-            await ctx.send(f"✅ Correct! You earned **{reward}** {CURRENCY} {CURRENCY_EMOJI}")
+            await ctx.send(f"✅ Correct! **{reward}** {CURRENCY} {CURRENCY_EMOJI}")
         else:
             await add_win_loss(ctx.author.id, False)
-            await ctx.send(f"❌ Wrong! The answer was **{q['a']}**.")
+            await ctx.send(f"❌ Wrong! Answer: **{q['a']}**")
     except asyncio.TimeoutError:
-        await ctx.send(f"⏰ Time's up! The answer was **{q['a']}**.")
-
-
-@trivia.error
-async def trivia_error(ctx, error):
-    if isinstance(error, commands.CommandOnCooldown):
-        await ctx.send(f"⏳ Slow down! Try again in {error.retry_after:.1f}s.")
-
+        await ctx.send(f"⏰ Time's up! Answer: **{q['a']}**")
 
 @bot.command(name="leaderboard", aliases=["lb", "top"])
 async def leaderboard(ctx):
     async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT user_id, balance FROM users ORDER BY balance DESC LIMIT 10") as cursor:
-            rows = await cursor.fetchall()
+        async with db.execute("SELECT user_id, balance FROM users ORDER BY balance DESC LIMIT 10") as cur:
+            rows = await cur.fetchall()
     if not rows:
-        await ctx.send("No one has vibes yet!")
-        return
-    embed = discord.Embed(title="🏆 Top Vibers Leaderboard", color=discord.Color.gold())
-    description = ""
-    for i, (user_id, bal) in enumerate(rows, 1):
-        user = bot.get_user(user_id) or await bot.fetch_user(user_id)
+        return await ctx.send("No one has vibes yet!")
+    desc = ""
+    for i, (uid, bal) in enumerate(rows, 1):
+        u = bot.get_user(uid) or await bot.fetch_user(uid)
         medal = ["🥇", "🥈", "🥉"][i-1] if i <= 3 else f"**{i}.**"
-        description += f"{medal} {user.display_name if user else 'Unknown'} — **{bal:,}** {CURRENCY}\n"
-    embed.description = description
-    await ctx.send(embed=embed)
-
+        desc += f"{medal} {u.display_name if u else 'Unknown'} — **{bal:,}** {CURRENCY}\n"
+    await ctx.send(embed=discord.Embed(title="🏆 Top Vibers", description=desc, color=discord.Color.gold()))
 
 @bot.command(name="dashboard", aliases=["dash", "panel"])
 async def dashboard_cmd(ctx):
     public = os.getenv("DASHBOARD_PUBLIC_URL", f"http://YOUR_SERVER_IP:{DASHBOARD_PORT}")
-    embed = discord.Embed(
-        title="🌐 Vibezzzzz Dashboard",
-        description=f"Manage stats, leaderboards & your servers:\n\n**{public}**",
-        color=discord.Color.purple()
-    )
-    embed.add_field(name="Features", value="• Global stats & leaderboard\n• Login with Discord\n• Per-server settings\n• Give vibes to members")
-    embed.set_footer(text="Set DASHBOARD_PUBLIC_URL env var for a clean link")
+    embed = discord.Embed(title="🌐 Vibezzzzz Dashboard", description=f"**{public}**\n\nStats • Leaderboard • Server settings • Give vibes", color=discord.Color.purple())
     await ctx.send(embed=embed)
-
 
 @bot.command(name="addmoney", aliases=["givemoney", "addvibes"])
 @commands.has_permissions(administrator=True)
 async def addmoney(ctx, member: discord.Member, amount: int):
     if amount == 0:
-        await ctx.send("❌ Amount can't be 0!")
-        return
+        return await ctx.send("❌ Amount can't be 0!")
     await get_user(member.id)
     await update_balance(member.id, amount)
     new_bal, _, _, _ = await get_user(member.id)
     action = "gave" if amount > 0 else "removed"
-    embed = discord.Embed(
-        title="💰 Admin Money Update",
+    embed = discord.Embed(title="💰 Admin Money Update",
         description=f"{ctx.author.mention} {action} **{abs(amount):,}** {CURRENCY} {'to' if amount > 0 else 'from'} {member.mention}",
-        color=discord.Color.green() if amount > 0 else discord.Color.orange()
-    )
+        color=discord.Color.green() if amount > 0 else discord.Color.orange())
     embed.add_field(name="New Balance", value=f"**{new_bal:,}** {CURRENCY}")
     await ctx.send(embed=embed)
-
 
 @addmoney.error
 async def addmoney_error(ctx, error):
     if isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ You need **Administrator** permission to use this.")
-    elif isinstance(error, commands.MissingRequiredArgument):
+        await ctx.send("❌ Administrator permission required.")
+    elif isinstance(error, (commands.MissingRequiredArgument, commands.BadArgument)):
         await ctx.send(f"❌ Usage: `{PREFIX}addmoney @user <amount>`")
-    elif isinstance(error, commands.BadArgument):
-        await ctx.send("❌ Please mention a valid member and a number amount.")
-
 
 @bot.command(name="help")
 async def help_command(ctx):
-    embed = discord.Embed(
-        title="✨ Vibezzzzz Bot Commands",
-        description=f"Prefix: `{PREFIX}`  •  Also supports **slash commands** (`/`)\nEarn and gamble with **{CURRENCY}** {CURRENCY_EMOJI}",
-        color=discord.Color.purple()
-    )
-    embed.add_field(name="💰 Economy", value=f"`{PREFIX}balance` / `/balance` — Check vibes\n`{PREFIX}daily` / `/daily` — Daily reward\n`{PREFIX}leaderboard` / `/leaderboard` — Top players\n`{PREFIX}dashboard` / `/dashboard` — Web dashboard", inline=False)
-    embed.add_field(name="🎰 Games", value=f"`{PREFIX}slots <amt>` / `/slots` — Slots\n`{PREFIX}guess <1-10> <amt>` / `/guess` — Guess (5x)\n`{PREFIX}trivia` / `/trivia` — Trivia", inline=False)
-    embed.add_field(name="🛡️ Admin", value=f"`{PREFIX}addmoney @user <amt>` / `/addmoney` — Give/remove vibes", inline=False)
-    embed.set_footer(text="Good luck & keep vibing! ✨")
+    embed = discord.Embed(title="✨ Vibezzzzz Commands", description=f"Prefix `{PREFIX}` + slash `/`", color=discord.Color.purple())
+    embed.add_field(name="💰 Economy", value=f"`balance` `daily` `leaderboard` `dashboard`", inline=False)
+    embed.add_field(name="🎰 Games", value=f"`slots <amt>` `guess <1-10> <amt>` `trivia`", inline=False)
+    embed.add_field(name="🛡️ Admin", value=f"`addmoney @user <amt>`", inline=False)
     await ctx.send(embed=embed)
 
-
-# ===== SLASH COMMANDS =====
-@bot.tree.command(name="balance", description="Check your vibe balance ✨")
+# Slash commands
+@bot.tree.command(name="balance", description="Check vibe balance ✨")
 async def slash_balance(interaction: discord.Interaction, member: discord.Member = None):
     member = member or interaction.user
     bal, _, wins, losses = await get_user(member.id)
     embed = discord.Embed(title=f"{CURRENCY_EMOJI} {member.display_name}'s Vibes", color=discord.Color.purple())
-    embed.add_field(name="Balance", value=f"**{bal:,}** {CURRENCY}", inline=True)
+    embed.add_field(name="Balance", value=f"**{bal:,}**", inline=True)
     embed.add_field(name="Wins", value=f"**{wins}**", inline=True)
     embed.add_field(name="Losses", value=f"**{losses}**", inline=True)
-    embed.set_thumbnail(url=member.display_avatar.url)
     await interaction.response.send_message(embed=embed)
 
-
 @bot.tree.command(name="slots", description="Spin the slots! 🎰")
-@app_commands.describe(amount="How many vibes to bet")
+@app_commands.describe(amount="Bet amount")
 async def slash_slots(interaction: discord.Interaction, amount: int):
     if not await is_feature_enabled(interaction.guild_id, "gambling"):
-        await interaction.response.send_message("🚫 Gambling is disabled on this server.", ephemeral=True)
-        return
+        return await interaction.response.send_message("🚫 Gambling disabled.", ephemeral=True)
     if amount <= 0:
-        await interaction.response.send_message("❌ Bet must be greater than 0!", ephemeral=True)
-        return
+        return await interaction.response.send_message("❌ Bet > 0", ephemeral=True)
     bal, _, _, _ = await get_user(interaction.user.id)
     if amount > bal:
-        await interaction.response.send_message(f"❌ You only have **{bal}** {CURRENCY}!", ephemeral=True)
-        return
+        return await interaction.response.send_message(f"❌ Only **{bal}** vibes", ephemeral=True)
     await update_balance(interaction.user.id, -amount)
-    reel1 = random.choices(SLOT_SYMBOLS, weights=SLOT_WEIGHTS, k=1)[0]
-    reel2 = random.choices(SLOT_SYMBOLS, weights=SLOT_WEIGHTS, k=1)[0]
-    reel3 = random.choices(SLOT_SYMBOLS, weights=SLOT_WEIGHTS, k=1)[0]
-    result = f"| {reel1} | {reel2} | {reel3} |"
-    multiplier = 0
-    if reel1 == reel2 == reel3:
-        multiplier = 50 if reel1 == "7️⃣" else (20 if reel1 == "💎" else 10)
-    elif reel1 == reel2 or reel2 == reel3 or reel1 == reel3:
-        multiplier = 2
-    winnings = amount * multiplier
-    embed = discord.Embed(title="🎰 Vibezzzzz Slots", description=f"**{result}**", color=discord.Color.purple())
-    if multiplier > 0:
-        await update_balance(interaction.user.id, winnings)
+    r1, r2, r3 = [random.choices(SLOT_SYMBOLS, weights=SLOT_WEIGHTS, k=1)[0] for _ in range(3)]
+    mult = 50 if r1 == r2 == r3 == "7️⃣" else (20 if r1 == r2 == r3 == "💎" else (10 if r1 == r2 == r3 else (2 if r1 == r2 or r2 == r3 or r1 == r3 else 0)))
+    win = amount * mult
+    embed = discord.Embed(title="🎰 Slots", description=f"**| {r1} | {r2} | {r3} |**", color=discord.Color.purple())
+    if mult:
+        await update_balance(interaction.user.id, win)
         await add_win_loss(interaction.user.id, True)
-        embed.add_field(name="🎉 YOU WON!", value=f"**+{winnings:,}** {CURRENCY} (x{multiplier})")
+        embed.add_field(name="🎉 WON!", value=f"+{win:,} (x{mult})")
         embed.color = discord.Color.green()
     else:
         await add_win_loss(interaction.user.id, False)
-        embed.add_field(name="💔 You lost...", value=f"-{amount:,} {CURRENCY}")
+        embed.add_field(name="💔 Lost", value=f"-{amount:,}")
         embed.color = discord.Color.red()
     new_bal, _, _, _ = await get_user(interaction.user.id)
-    embed.set_footer(text=f"New balance: {new_bal:,} {CURRENCY}")
+    embed.set_footer(text=f"Balance: {new_bal:,}")
     await interaction.response.send_message(embed=embed)
 
-
-@bot.tree.command(name="daily", description="Claim your daily vibes! ☀️")
+@bot.tree.command(name="daily", description="Claim daily vibes ☀️")
 async def slash_daily(interaction: discord.Interaction):
-    bal, last_daily, _, _ = await get_user(interaction.user.id)
-    if last_daily:
-        last = datetime.fromisoformat(last_daily)
-        if datetime.utcnow() - last < timedelta(hours=24):
-            remaining = timedelta(hours=24) - (datetime.utcnow() - last)
-            hours = int(remaining.total_seconds() // 3600)
-            minutes = int((remaining.total_seconds() % 3600) // 60)
-            await interaction.response.send_message(f"⏳ You already claimed! Come back in **{hours}h {minutes}m**.", ephemeral=True)
-            return
+    bal, last, _, _ = await get_user(interaction.user.id)
+    if last and datetime.utcnow() - datetime.fromisoformat(last) < timedelta(hours=24):
+        rem = timedelta(hours=24) - (datetime.utcnow() - datetime.fromisoformat(last))
+        return await interaction.response.send_message(f"⏳ {int(rem.total_seconds()//3600)}h {int((rem.total_seconds()%3600)//60)}m left", ephemeral=True)
     reward = random.randint(50, 150)
     await update_balance(interaction.user.id, reward)
     await set_daily(interaction.user.id)
-    embed = discord.Embed(title="☀️ Daily Vibes Claimed!", description=f"You received **{reward}** {CURRENCY} {CURRENCY_EMOJI}", color=discord.Color.gold())
-    embed.add_field(name="New Balance", value=f"{bal + reward:,} {CURRENCY}")
+    embed = discord.Embed(title="☀️ Daily!", description=f"+**{reward}** {CURRENCY}", color=discord.Color.gold())
     await interaction.response.send_message(embed=embed)
 
-
-@bot.tree.command(name="guess", description="Guess a number between 1-10! 🎲")
-@app_commands.describe(number="Your guess (1-10)", amount="How many vibes to bet")
+@bot.tree.command(name="guess", description="Guess 1-10 for 5x 🎲")
+@app_commands.describe(number="1-10", amount="Bet")
 async def slash_guess(interaction: discord.Interaction, number: int, amount: int):
     if not await is_feature_enabled(interaction.guild_id, "gambling"):
-        await interaction.response.send_message("🚫 Gambling is disabled on this server.", ephemeral=True)
-        return
-    if number < 1 or number > 10:
-        await interaction.response.send_message("❌ Number must be between 1 and 10!", ephemeral=True)
-        return
-    if amount <= 0:
-        await interaction.response.send_message("❌ Bet must be greater than 0!", ephemeral=True)
-        return
+        return await interaction.response.send_message("🚫 Disabled", ephemeral=True)
+    if not 1 <= number <= 10 or amount <= 0:
+        return await interaction.response.send_message("❌ Invalid", ephemeral=True)
     bal, _, _, _ = await get_user(interaction.user.id)
     if amount > bal:
-        await interaction.response.send_message(f"❌ You only have **{bal}** {CURRENCY}!", ephemeral=True)
-        return
+        return await interaction.response.send_message(f"❌ Only {bal}", ephemeral=True)
     await update_balance(interaction.user.id, -amount)
     secret = random.randint(1, 10)
-    embed = discord.Embed(title="🎲 Number Guess", color=discord.Color.purple())
-    embed.add_field(name="Your Guess", value=str(number), inline=True)
-    embed.add_field(name="The Number", value=str(secret), inline=True)
+    embed = discord.Embed(title="🎲 Guess", color=discord.Color.purple())
+    embed.add_field(name="Guess", value=str(number), inline=True)
+    embed.add_field(name="Number", value=str(secret), inline=True)
     if number == secret:
-        winnings = amount * 5
-        await update_balance(interaction.user.id, winnings)
+        await update_balance(interaction.user.id, amount * 5)
         await add_win_loss(interaction.user.id, True)
-        embed.description = f"🎉 **CORRECT!** You won **{winnings:,}** {CURRENCY}!"
+        embed.description = f"🎉 Won **{amount*5:,}**!"
         embed.color = discord.Color.green()
     else:
         await add_win_loss(interaction.user.id, False)
-        embed.description = f"💔 Wrong! You lost **{amount:,}** {CURRENCY}."
+        embed.description = f"💔 Lost **{amount:,}**"
         embed.color = discord.Color.red()
-    new_bal, _, _, _ = await get_user(interaction.user.id)
-    embed.set_footer(text=f"New balance: {new_bal:,} {CURRENCY}")
     await interaction.response.send_message(embed=embed)
 
-
-@bot.tree.command(name="trivia", description="Answer a trivia question for free vibes! 🧠")
+@bot.tree.command(name="trivia", description="Trivia for free vibes 🧠")
 async def slash_trivia(interaction: discord.Interaction):
     if not await is_feature_enabled(interaction.guild_id, "trivia"):
-        await interaction.response.send_message("🚫 Trivia is disabled on this server.", ephemeral=True)
-        return
+        return await interaction.response.send_message("🚫 Disabled", ephemeral=True)
     q = random.choice(TRIVIA_QUESTIONS)
-    embed = discord.Embed(title="🧠 Trivia Time!", description=q["q"], color=discord.Color.blue())
-    embed.set_footer(text="You have 15 seconds to answer!")
-    await interaction.response.send_message(embed=embed)
-    def check(m):
-        return m.author == interaction.user and m.channel == interaction.channel
+    await interaction.response.send_message(embed=discord.Embed(title="🧠 Trivia", description=q["q"], color=discord.Color.blue()))
     try:
-        msg = await bot.wait_for("message", check=check, timeout=15.0)
-        answer = msg.content.lower().strip()
-        if answer == q["a"] or q["a"] in answer:
+        msg = await bot.wait_for("message", check=lambda m: m.author == interaction.user and m.channel == interaction.channel, timeout=15.0)
+        if q["a"] in msg.content.lower():
             reward = random.randint(25, 75)
             await update_balance(interaction.user.id, reward)
-            await add_win_loss(interaction.user.id, True)
-            await interaction.followup.send(f"✅ Correct! You earned **{reward}** {CURRENCY} {CURRENCY_EMOJI}")
+            await interaction.followup.send(f"✅ +**{reward}** {CURRENCY}")
         else:
-            await add_win_loss(interaction.user.id, False)
-            await interaction.followup.send(f"❌ Wrong! The answer was **{q['a']}**.")
+            await interaction.followup.send(f"❌ Answer: **{q['a']}**")
     except asyncio.TimeoutError:
-        await interaction.followup.send(f"⏰ Time's up! The answer was **{q['a']}**.")
+        await interaction.followup.send(f"⏰ Answer: **{q['a']}**")
 
-
-@bot.tree.command(name="leaderboard", description="See the richest vibers 🏆")
+@bot.tree.command(name="leaderboard", description="Top vibers 🏆")
 async def slash_leaderboard(interaction: discord.Interaction):
     async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT user_id, balance FROM users ORDER BY balance DESC LIMIT 10") as cursor:
-            rows = await cursor.fetchall()
+        async with db.execute("SELECT user_id, balance FROM users ORDER BY balance DESC LIMIT 10") as cur:
+            rows = await cur.fetchall()
     if not rows:
-        await interaction.response.send_message("No one has vibes yet!")
-        return
-    embed = discord.Embed(title="🏆 Top Vibers Leaderboard", color=discord.Color.gold())
-    description = ""
-    for i, (user_id, bal) in enumerate(rows, 1):
-        user = bot.get_user(user_id) or await bot.fetch_user(user_id)
+        return await interaction.response.send_message("No players yet")
+    desc = ""
+    for i, (uid, bal) in enumerate(rows, 1):
+        u = bot.get_user(uid) or await bot.fetch_user(uid)
         medal = ["🥇", "🥈", "🥉"][i-1] if i <= 3 else f"**{i}.**"
-        description += f"{medal} {user.display_name if user else 'Unknown'} — **{bal:,}** {CURRENCY}\n"
-    embed.description = description
-    await interaction.response.send_message(embed=embed)
+        desc += f"{medal} {u.display_name if u else '?'} — **{bal:,}**\n"
+    await interaction.response.send_message(embed=discord.Embed(title="🏆 Leaderboard", description=desc, color=discord.Color.gold()))
 
-
-@bot.tree.command(name="dashboard", description="Get the web dashboard link 🌐")
+@bot.tree.command(name="dashboard", description="Dashboard link 🌐")
 async def slash_dashboard(interaction: discord.Interaction):
     public = os.getenv("DASHBOARD_PUBLIC_URL", f"http://YOUR_SERVER_IP:{DASHBOARD_PORT}")
-    embed = discord.Embed(
-        title="🌐 Vibezzzzz Dashboard",
-        description=f"Manage stats, leaderboards & your servers:\n\n**{public}**",
-        color=discord.Color.purple()
-    )
-    embed.add_field(name="Features", value="• Global stats & leaderboard\n• Login with Discord\n• Per-server settings\n• Give vibes to members")
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(embed=discord.Embed(title="🌐 Dashboard", description=f"**{public}**", color=discord.Color.purple()))
 
-
-@bot.tree.command(name="addmoney", description="[Admin] Give or remove vibes from a member")
-@app_commands.describe(member="Who to give vibes to", amount="Amount (+ give / - remove)")
+@bot.tree.command(name="addmoney", description="[Admin] Give/remove vibes")
+@app_commands.describe(member="Member", amount="Amount (+/-)")
 @app_commands.default_permissions(administrator=True)
 async def slash_addmoney(interaction: discord.Interaction, member: discord.Member, amount: int):
     if amount == 0:
-        await interaction.response.send_message("❌ Amount can't be 0!", ephemeral=True)
-        return
+        return await interaction.response.send_message("❌ Amount can't be 0", ephemeral=True)
     await get_user(member.id)
     await update_balance(member.id, amount)
     new_bal, _, _, _ = await get_user(member.id)
     action = "gave" if amount > 0 else "removed"
-    embed = discord.Embed(
-        title="💰 Admin Money Update",
-        description=f"{interaction.user.mention} {action} **{abs(amount):,}** {CURRENCY} {'to' if amount > 0 else 'from'} {member.mention}",
-        color=discord.Color.green() if amount > 0 else discord.Color.orange()
-    )
-    embed.add_field(name="New Balance", value=f"**{new_bal:,}** {CURRENCY}")
+    embed = discord.Embed(title="💰 Admin Update",
+        description=f"{interaction.user.mention} {action} **{abs(amount):,}** {'to' if amount > 0 else 'from'} {member.mention}",
+        color=discord.Color.green() if amount > 0 else discord.Color.orange())
+    embed.add_field(name="New Balance", value=f"**{new_bal:,}**")
     await interaction.response.send_message(embed=embed)
 
-
-@bot.tree.command(name="help", description="Show all commands 📖")
+@bot.tree.command(name="help", description="All commands 📖")
 async def slash_help(interaction: discord.Interaction):
-    embed = discord.Embed(
-        title="✨ Vibezzzzz Bot Commands",
-        description=f"Prefix: `{PREFIX}`  •  Also supports **slash commands** (`/`)\nEarn and gamble with **{CURRENCY}** {CURRENCY_EMOJI}",
-        color=discord.Color.purple()
-    )
-    embed.add_field(name="💰 Economy", value=f"`{PREFIX}balance` / `/balance` — Check vibes\n`{PREFIX}daily` / `/daily` — Daily reward\n`{PREFIX}leaderboard` / `/leaderboard` — Top players\n`{PREFIX}dashboard` / `/dashboard` — Web dashboard", inline=False)
-    embed.add_field(name="🎰 Games", value=f"`{PREFIX}slots <amt>` / `/slots` — Slo
+    embed = discord.Embed(title="✨ Commands", color=discord.Color.purple())
+    embed.add_field(name="Economy", value="`/balance` `/daily` `/leaderboard` `/dashboard`", inline=False)
+    embed.add_field(name="Games", value="`/slots` `/guess` `/trivia`", inline=False)
+    embed.add_field(name="Admin", value="`/addmoney`", inline=False)
+    await interaction.response.send_message(embed=embed)
+
+if __name__ == "__main__":
+    if not TOKEN:
+        print("❌ DISCORD_TOKEN not set!")
+    else:
+        bot.run(TOKEN)
