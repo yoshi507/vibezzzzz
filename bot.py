@@ -5,6 +5,7 @@ import aiosqlite
 import random
 import asyncio
 import os
+import sys
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 
@@ -12,9 +13,9 @@ load_dotenv()
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 PREFIX = os.getenv("BOT_PREFIX", "v!")
-# Wispbyte / Pterodactyl often inject SERVER_PORT — prefer that so the panel keeps the process alive
+# Wispbyte injects SERVER_PORT — always bind 0.0.0.0 (never the public IP)
 DASHBOARD_PORT = int(os.getenv("SERVER_PORT") or os.getenv("DASHBOARD_PORT") or "8080")
-DASHBOARD_HOST = os.getenv("DASHBOARD_HOST", "0.0.0.0")
+DASHBOARD_HOST = "0.0.0.0"
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -23,7 +24,7 @@ intents.members = True
 bot = commands.Bot(
     command_prefix=commands.when_mentioned_or(PREFIX, "v.", "vibez ", "vibe "),
     intents=intents,
-    help_command=None
+    help_command=None,
 )
 
 CURRENCY = "vibes"
@@ -109,7 +110,7 @@ async def is_feature_enabled(guild_id, feature: str) -> bool:
 
 
 async def start_dashboard():
-    """Run FastAPI dashboard. Failures are logged but never kill the bot."""
+    """Run FastAPI on 0.0.0.0:SERVER_PORT. Never kill the bot on failure."""
     try:
         import uvicorn
         from web import app as web_app, set_bot
@@ -117,22 +118,25 @@ async def start_dashboard():
         set_bot(bot)
         config = uvicorn.Config(
             web_app,
-            host=DASHBOARD_HOST,
+            host="0.0.0.0",
             port=DASHBOARD_PORT,
             log_level="warning",
             access_log=False,
         )
         server = uvicorn.Server(config)
-        print(f"🌐 Dashboard starting on http://{DASHBOARD_HOST}:{DASHBOARD_PORT}")
+        # Prevent uvicorn from calling sys.exit on bind failure
+        server.install_signal_handlers = False
+        print(f"🌐 Dashboard starting on 0.0.0.0:{DASHBOARD_PORT}")
         await server.serve()
-    except ImportError as e:
-        print(f"⚠️ Dashboard packages missing ({e}). Bot still runs without web UI.")
-        print("   Run: pip install fastapi uvicorn httpx itsdangerous jinja2 python-multipart")
+    except SystemExit:
+        print(f"⚠️ Dashboard could not bind port {DASHBOARD_PORT} — bot still online without web UI.")
     except OSError as e:
-        print(f"⚠️ Dashboard could not bind port {DASHBOARD_PORT}: {e}")
-        print("   Set SERVER_PORT / DASHBOARD_PORT to an open port allocated in Wispbyte.")
+        print(f"⚠️ Dashboard bind error on port {DASHBOARD_PORT}: {e}")
+        print("   Bot is still online. Allocate a port in Wispbyte or set SERVER_PORT.")
+    except ImportError as e:
+        print(f"⚠️ Dashboard packages missing ({e}). Bot still runs.")
     except Exception as e:
-        print(f"⚠️ Dashboard error (bot still online): {e}")
+        print(f"⚠️ Dashboard error (bot still online): {type(e).__name__}: {e}")
 
 
 @bot.event
@@ -357,7 +361,6 @@ async def help_command(ctx):
     await ctx.send(embed=embed)
 
 
-# ===== Slash commands =====
 @bot.tree.command(name="balance", description="Check vibe balance ✨")
 async def slash_balance(interaction: discord.Interaction, member: discord.Member = None):
     member = member or interaction.user
