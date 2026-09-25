@@ -14,10 +14,8 @@ load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 PREFIX = os.getenv("BOT_PREFIX", "v!")
 DASHBOARD_PORT = int(os.getenv("SERVER_PORT") or os.getenv("DASHBOARD_PORT") or "8080")
-# Comma-separated Discord user IDs who can always use addmoney
 OWNER_IDS = {int(x.strip()) for x in os.getenv("BOT_OWNER_IDS", "").split(",") if x.strip().isdigit()}
 
-# DB next to this file (same as dashboard)
 DB_PATH = str(Path(__file__).resolve().parent / "vibezzzzz.db")
 
 intents = discord.Intents.default()
@@ -165,6 +163,8 @@ async def on_ready():
         bot._dashboard_started = True
         asyncio.create_task(start_dashboard())
 
+
+# ─── Prefix commands ─────────────────────────────────────────────────────────
 
 @bot.command(name="balance", aliases=["bal", "vibes"])
 async def balance(ctx, member: discord.Member = None):
@@ -336,7 +336,6 @@ async def dashboard_cmd(ctx):
 
 @bot.command(name="addmoney", aliases=["givemoney", "addvibes"])
 async def addmoney(ctx, member: discord.Member, amount: int):
-    """Give or remove vibes. Requires Administrator OR BOT_OWNER_IDS."""
     if not can_manage_money(ctx.author):
         return await ctx.send("❌ You need **Administrator** or be listed in `BOT_OWNER_IDS`.")
     if amount == 0:
@@ -369,27 +368,31 @@ async def help_command(ctx):
     await ctx.send(embed=embed)
 
 
+# ─── Slash commands (defer first → shows "thinking…", avoids 3s timeout) ─────
+
 @bot.tree.command(name="balance", description="Check vibe balance ✨")
 async def slash_balance(interaction: discord.Interaction, member: discord.Member = None):
+    await interaction.response.defer()
     member = member or interaction.user
     bal, _, wins, losses = await get_user(member.id)
     embed = discord.Embed(title=f"{CURRENCY_EMOJI} {member.display_name}'s Vibes", color=discord.Color.purple())
     embed.add_field(name="Balance", value=f"**{bal:,}**", inline=True)
     embed.add_field(name="Wins", value=f"**{wins}**", inline=True)
     embed.add_field(name="Losses", value=f"**{losses}**", inline=True)
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
 
 
 @bot.tree.command(name="slots", description="Spin the slots! 🎰")
 @app_commands.describe(amount="Bet amount")
 async def slash_slots(interaction: discord.Interaction, amount: int):
+    await interaction.response.defer()
     if not await is_feature_enabled(interaction.guild_id, "gambling"):
-        return await interaction.response.send_message("🚫 Gambling disabled.", ephemeral=True)
+        return await interaction.followup.send("🚫 Gambling disabled.", ephemeral=True)
     if amount <= 0:
-        return await interaction.response.send_message("❌ Bet > 0", ephemeral=True)
+        return await interaction.followup.send("❌ Bet > 0", ephemeral=True)
     bal, _, _, _ = await get_user(interaction.user.id)
     if amount > bal:
-        return await interaction.response.send_message(f"❌ Only **{bal}** vibes", ephemeral=True)
+        return await interaction.followup.send(f"❌ Only **{bal}** vibes", ephemeral=True)
     await update_balance(interaction.user.id, -amount)
     r1, r2, r3 = [random.choices(SLOT_SYMBOLS, weights=SLOT_WEIGHTS, k=1)[0] for _ in range(3)]
     mult = (
@@ -412,22 +415,23 @@ async def slash_slots(interaction: discord.Interaction, amount: int):
         embed.color = discord.Color.red()
     new_bal, _, _, _ = await get_user(interaction.user.id)
     embed.set_footer(text=f"Balance: {new_bal:,}")
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
 
 
 @bot.tree.command(name="daily", description="Claim daily vibes ☀️")
 async def slash_daily(interaction: discord.Interaction):
+    await interaction.response.defer()
     bal, last, _, _ = await get_user(interaction.user.id)
     if last and datetime.utcnow() - datetime.fromisoformat(last) < timedelta(hours=24):
         rem = timedelta(hours=24) - (datetime.utcnow() - datetime.fromisoformat(last))
-        return await interaction.response.send_message(
+        return await interaction.followup.send(
             f"⏳ {int(rem.total_seconds() // 3600)}h {int((rem.total_seconds() % 3600) // 60)}m left",
             ephemeral=True,
         )
     reward = random.randint(50, 150)
     await update_balance(interaction.user.id, reward)
     await set_daily(interaction.user.id)
-    await interaction.response.send_message(
+    await interaction.followup.send(
         embed=discord.Embed(title="☀️ Daily!", description=f"+**{reward}** {CURRENCY}", color=discord.Color.gold())
     )
 
@@ -435,13 +439,14 @@ async def slash_daily(interaction: discord.Interaction):
 @bot.tree.command(name="guess", description="Guess 1-10 for 5x 🎲")
 @app_commands.describe(number="1-10", amount="Bet")
 async def slash_guess(interaction: discord.Interaction, number: int, amount: int):
+    await interaction.response.defer()
     if not await is_feature_enabled(interaction.guild_id, "gambling"):
-        return await interaction.response.send_message("🚫 Disabled", ephemeral=True)
+        return await interaction.followup.send("🚫 Disabled", ephemeral=True)
     if not 1 <= number <= 10 or amount <= 0:
-        return await interaction.response.send_message("❌ Invalid", ephemeral=True)
+        return await interaction.followup.send("❌ Invalid", ephemeral=True)
     bal, _, _, _ = await get_user(interaction.user.id)
     if amount > bal:
-        return await interaction.response.send_message(f"❌ Only {bal}", ephemeral=True)
+        return await interaction.followup.send(f"❌ Only {bal}", ephemeral=True)
     await update_balance(interaction.user.id, -amount)
     secret = random.randint(1, 10)
     embed = discord.Embed(title="🎲 Guess", color=discord.Color.purple())
@@ -456,16 +461,19 @@ async def slash_guess(interaction: discord.Interaction, number: int, amount: int
         await add_win_loss(interaction.user.id, False)
         embed.description = f"💔 Lost **{amount:,}**"
         embed.color = discord.Color.red()
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
 
 
 @bot.tree.command(name="trivia", description="Trivia for free vibes 🧠")
 async def slash_trivia(interaction: discord.Interaction):
+    await interaction.response.defer()
     if not await is_feature_enabled(interaction.guild_id, "trivia"):
-        return await interaction.response.send_message("🚫 Disabled", ephemeral=True)
+        return await interaction.followup.send("🚫 Disabled", ephemeral=True)
     q = random.choice(TRIVIA_QUESTIONS)
-    await interaction.response.send_message(
-        embed=discord.Embed(title="🧠 Trivia", description=q["q"], color=discord.Color.blue())
+    await interaction.followup.send(
+        embed=discord.Embed(title="🧠 Trivia", description=q["q"], color=discord.Color.blue()).set_footer(
+            text="15 seconds!"
+        )
     )
     try:
         msg = await bot.wait_for(
@@ -485,25 +493,27 @@ async def slash_trivia(interaction: discord.Interaction):
 
 @bot.tree.command(name="leaderboard", description="Top vibers 🏆")
 async def slash_leaderboard(interaction: discord.Interaction):
+    await interaction.response.defer()
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT user_id, balance FROM users ORDER BY balance DESC LIMIT 10") as cur:
             rows = await cur.fetchall()
     if not rows:
-        return await interaction.response.send_message("No players yet")
+        return await interaction.followup.send("No players yet")
     desc = ""
     for i, (uid, bal) in enumerate(rows, 1):
         u = bot.get_user(uid) or await bot.fetch_user(uid)
         medal = ["🥇", "🥈", "🥉"][i - 1] if i <= 3 else f"**{i}.**"
         desc += f"{medal} {u.display_name if u else '?'} — **{bal:,}**\n"
-    await interaction.response.send_message(
+    await interaction.followup.send(
         embed=discord.Embed(title="🏆 Leaderboard", description=desc, color=discord.Color.gold())
     )
 
 
 @bot.tree.command(name="dashboard", description="Dashboard link 🌐")
 async def slash_dashboard(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
     public = os.getenv("DASHBOARD_PUBLIC_URL", f"http://YOUR_SERVER_IP:{DASHBOARD_PORT}")
-    await interaction.response.send_message(
+    await interaction.followup.send(
         embed=discord.Embed(title="🌐 Dashboard", description=f"**{public}**", color=discord.Color.purple())
     )
 
@@ -511,12 +521,13 @@ async def slash_dashboard(interaction: discord.Interaction):
 @bot.tree.command(name="addmoney", description="[Admin/Owner] Give or remove vibes")
 @app_commands.describe(member="Member", amount="Amount (+ give / - remove)")
 async def slash_addmoney(interaction: discord.Interaction, member: discord.Member, amount: int):
+    await interaction.response.defer()
     if not can_manage_money(interaction.user):
-        return await interaction.response.send_message(
+        return await interaction.followup.send(
             "❌ You need **Administrator** or be listed in `BOT_OWNER_IDS`.", ephemeral=True
         )
     if amount == 0:
-        return await interaction.response.send_message("❌ Amount can't be 0", ephemeral=True)
+        return await interaction.followup.send("❌ Amount can't be 0", ephemeral=True)
     await get_user(member.id)
     await update_balance(member.id, amount)
     new_bal, _, _, _ = await get_user(member.id)
@@ -527,16 +538,17 @@ async def slash_addmoney(interaction: discord.Interaction, member: discord.Membe
         color=discord.Color.green() if amount > 0 else discord.Color.orange(),
     )
     embed.add_field(name="New Balance", value=f"**{new_bal:,}**")
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
 
 
 @bot.tree.command(name="help", description="All commands 📖")
 async def slash_help(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
     embed = discord.Embed(title="✨ Commands", color=discord.Color.purple())
     embed.add_field(name="Economy", value="`/balance` `/daily` `/leaderboard` `/dashboard`", inline=False)
     embed.add_field(name="Games", value="`/slots` `/guess` `/trivia`", inline=False)
     embed.add_field(name="Admin / Owner", value="`/addmoney`", inline=False)
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
 
 
 if __name__ == "__main__":
