@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Admin Money • Vibezzzzz{% endblock %}
+{% block content %}
+<h1 class="text-3xl font-bold text-vibe-200 mb-2">💰 Owner Money Tools</h1>
+<p class="text-vibe-400 mb-6">Give or remove vibes from any user (BOT_OWNER_IDS only)</p>
+
+<div class="card glow rounded-2xl p-6">
+  <form method="POST" action="/admin/givemoney" class="grid md:grid-cols-3 gap-4 items-end">
+    <div>
+      <label class="block text-sm text-vibe-400 mb-1">Discord User ID</label>
+      <input type="text" name="user_id" required placeholder="123456789012345678"
+             class="w-full bg-black/40 border border-vibe-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-vibe-500">
+      <p class="text-xs text-vibe-600 mt-1">Right-click user → Copy User ID</p>
+    </div>
+    <div>
+      <label class="block text-sm text-vibe-400 mb-1">Amount (+ give / − remove)</label>
+      <input type="number" name="amount" required placeholder="500"
+             class="w-full bg-black/40 border border-vibe-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-vibe-500">
+    </div>
+    <div>
+      <button type="submit" class="w-full bg-vibe-600 hover:bg-vibe-500 px-5 py-2 rounded-lg font-medium transition">
+        Update Balance
+      </button>
+    </div>
+  </form>
+  {% if money_msg %}
+  <p class="text-green-400 text-sm mt-3">{{ money_msg }}</p>
+  {% endif %}
+</div>
+
+<div class="mt-6">
+  <a href="/" class="text-vibe-400 hover:text-vibe-300 text-sm">← Home</a>
+</div>
+{% endblock %}
