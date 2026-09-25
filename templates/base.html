@@ -33,6 +33,7 @@
         <a href="/stats" class="text-vibe-200 hover:text-white transition">Stats</a>
         {% if user %}
           <a href="/servers" class="text-vibe-200 hover:text-white transition">My Servers</a>
+          <a href="/admin" class="text-vibe-200 hover:text-white transition">Admin</a>
           <div class="flex items-center gap-2">
             {% if user.avatar %}
               <img src="https://cdn.discordapp.com/avatars/{{ user.id }}/{{ user.avatar }}.png?size=32" class="w-7 h-7 rounded-full" alt="">
