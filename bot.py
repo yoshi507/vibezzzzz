@@ -5,17 +5,20 @@ import aiosqlite
 import random
 import asyncio
 import os
-import sys
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
+from pathlib import Path
 
 load_dotenv()
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 PREFIX = os.getenv("BOT_PREFIX", "v!")
-# Wispbyte injects SERVER_PORT — always bind 0.0.0.0 (never the public IP)
 DASHBOARD_PORT = int(os.getenv("SERVER_PORT") or os.getenv("DASHBOARD_PORT") or "8080")
-DASHBOARD_HOST = "0.0.0.0"
+# Comma-separated Discord user IDs who can always use addmoney
+OWNER_IDS = {int(x.strip()) for x in os.getenv("BOT_OWNER_IDS", "").split(",") if x.strip().isdigit()}
+
+# DB next to this file (same as dashboard)
+DB_PATH = str(Path(__file__).resolve().parent / "vibezzzzz.db")
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -43,7 +46,18 @@ TRIVIA_QUESTIONS = [
     {"q": "What is the speed of light (approx km/s)?", "a": "300000"},
     {"q": "What year did World War 2 end?", "a": "1945"},
 ]
-DB_PATH = "vibezzzzz.db"
+
+
+def is_bot_owner(user_id: int) -> bool:
+    return user_id in OWNER_IDS
+
+
+def can_manage_money(member: discord.Member | discord.User) -> bool:
+    if is_bot_owner(member.id):
+        return True
+    if isinstance(member, discord.Member) and member.guild_permissions.administrator:
+        return True
+    return False
 
 
 async def init_db():
@@ -110,33 +124,26 @@ async def is_feature_enabled(guild_id, feature: str) -> bool:
 
 
 async def start_dashboard():
-    """Run FastAPI on 0.0.0.0:SERVER_PORT. Never kill the bot on failure."""
     try:
         import uvicorn
         from web import app as web_app, set_bot
 
         set_bot(bot)
         config = uvicorn.Config(
-            web_app,
-            host="0.0.0.0",
-            port=DASHBOARD_PORT,
-            log_level="warning",
-            access_log=False,
+            web_app, host="0.0.0.0", port=DASHBOARD_PORT, log_level="warning", access_log=False
         )
         server = uvicorn.Server(config)
-        # Prevent uvicorn from calling sys.exit on bind failure
         server.install_signal_handlers = False
         print(f"🌐 Dashboard starting on 0.0.0.0:{DASHBOARD_PORT}")
         await server.serve()
     except SystemExit:
-        print(f"⚠️ Dashboard could not bind port {DASHBOARD_PORT} — bot still online without web UI.")
+        print(f"⚠️ Dashboard could not bind port {DASHBOARD_PORT} — bot still online.")
     except OSError as e:
-        print(f"⚠️ Dashboard bind error on port {DASHBOARD_PORT}: {e}")
-        print("   Bot is still online. Allocate a port in Wispbyte or set SERVER_PORT.")
+        print(f"⚠️ Dashboard bind error: {e}")
     except ImportError as e:
-        print(f"⚠️ Dashboard packages missing ({e}). Bot still runs.")
+        print(f"⚠️ Dashboard packages missing ({e}).")
     except Exception as e:
-        print(f"⚠️ Dashboard error (bot still online): {type(e).__name__}: {e}")
+        print(f"⚠️ Dashboard error: {type(e).__name__}: {e}")
 
 
 @bot.event
@@ -147,12 +154,13 @@ async def on_ready():
         activity=discord.Activity(type=discord.ActivityType.playing, name="with vibes ✨ | v!help"),
     )
     print(f"✨ {bot.user} is online and ready to vibe! ✨")
+    if OWNER_IDS:
+        print(f"👑 Bot owners: {OWNER_IDS}")
     try:
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} slash commands.")
     except Exception as e:
-        print(f"Failed to sync slash commands: {e}")
-
+        print(f"Failed to sync: {e}")
     if not getattr(bot, "_dashboard_started", False):
         bot._dashboard_started = True
         asyncio.create_task(start_dashboard())
@@ -327,8 +335,10 @@ async def dashboard_cmd(ctx):
 
 
 @bot.command(name="addmoney", aliases=["givemoney", "addvibes"])
-@commands.has_permissions(administrator=True)
 async def addmoney(ctx, member: discord.Member, amount: int):
+    """Give or remove vibes. Requires Administrator OR BOT_OWNER_IDS."""
+    if not can_manage_money(ctx.author):
+        return await ctx.send("❌ You need **Administrator** or be listed in `BOT_OWNER_IDS`.")
     if amount == 0:
         return await ctx.send("❌ Amount can't be 0!")
     await get_user(member.id)
@@ -346,9 +356,7 @@ async def addmoney(ctx, member: discord.Member, amount: int):
 
 @addmoney.error
 async def addmoney_error(ctx, error):
-    if isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ Administrator permission required.")
-    elif isinstance(error, (commands.MissingRequiredArgument, commands.BadArgument)):
+    if isinstance(error, (commands.MissingRequiredArgument, commands.BadArgument)):
         await ctx.send(f"❌ Usage: `{PREFIX}addmoney @user <amount>`")
 
 
@@ -357,7 +365,7 @@ async def help_command(ctx):
     embed = discord.Embed(title="✨ Vibezzzzz Commands", description=f"Prefix `{PREFIX}` + slash `/`", color=discord.Color.purple())
     embed.add_field(name="💰 Economy", value="`balance` `daily` `leaderboard` `dashboard`", inline=False)
     embed.add_field(name="🎰 Games", value="`slots <amt>` `guess <1-10> <amt>` `trivia`", inline=False)
-    embed.add_field(name="🛡️ Admin", value="`addmoney @user <amt>`", inline=False)
+    embed.add_field(name="🛡️ Admin / Owner", value="`addmoney @user <amt>`", inline=False)
     await ctx.send(embed=embed)
 
 
@@ -500,10 +508,13 @@ async def slash_dashboard(interaction: discord.Interaction):
     )
 
 
-@bot.tree.command(name="addmoney", description="[Admin] Give/remove vibes")
-@app_commands.describe(member="Member", amount="Amount (+/-)")
-@app_commands.default_permissions(administrator=True)
+@bot.tree.command(name="addmoney", description="[Admin/Owner] Give or remove vibes")
+@app_commands.describe(member="Member", amount="Amount (+ give / - remove)")
 async def slash_addmoney(interaction: discord.Interaction, member: discord.Member, amount: int):
+    if not can_manage_money(interaction.user):
+        return await interaction.response.send_message(
+            "❌ You need **Administrator** or be listed in `BOT_OWNER_IDS`.", ephemeral=True
+        )
     if amount == 0:
         return await interaction.response.send_message("❌ Amount can't be 0", ephemeral=True)
     await get_user(member.id)
@@ -524,7 +535,7 @@ async def slash_help(interaction: discord.Interaction):
     embed = discord.Embed(title="✨ Commands", color=discord.Color.purple())
     embed.add_field(name="Economy", value="`/balance` `/daily` `/leaderboard` `/dashboard`", inline=False)
     embed.add_field(name="Games", value="`/slots` `/guess` `/trivia`", inline=False)
-    embed.add_field(name="Admin", value="`/addmoney`", inline=False)
+    embed.add_field(name="Admin / Owner", value="`/addmoney`", inline=False)
     await interaction.response.send_message(embed=embed)
 
 
