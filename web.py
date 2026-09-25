@@ -15,7 +15,6 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-# Always resolve paths relative to this file (fixes 500 when cwd differs on Wispbyte)
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = str(BASE_DIR / "vibezzzzz.db")
 TEMPLATES_DIR = str(BASE_DIR / "templates")
@@ -26,7 +25,6 @@ REDIRECT_URI = os.getenv("DASHBOARD_REDIRECT_URI", "http://localhost:8080/callba
 SECRET_KEY = os.getenv("DASHBOARD_SECRET_KEY", secrets.token_hex(32))
 API_BASE = "https://discord.com/api/v10"
 
-# Comma-separated Discord user IDs who can manage money from the dashboard
 OWNER_IDS = {
     x.strip()
     for x in os.getenv("BOT_OWNER_IDS", "").split(",")
@@ -140,9 +138,13 @@ def get_current_user(request: Request) -> Optional[dict]:
     return request.session.get("user")
 
 
+def render(request: Request, name: str, context: dict):
+    """TemplateResponse with correct arg order for modern Starlette/FastAPI."""
+    return templates.TemplateResponse(request, name, context)
+
+
 @app.exception_handler(Exception)
 async def global_error(request: Request, exc: Exception):
-    """Show a readable error instead of a blank 500."""
     import traceback
 
     tb = traceback.format_exc()
@@ -159,25 +161,30 @@ async def global_error(request: Request, exc: Exception):
 async def home(request: Request):
     stats = await get_stats()
     top = await get_leaderboard(5)
-    return templates.TemplateResponse(
+    return render(
+        request,
         "index.html",
-        {"request": request, "user": get_current_user(request), "stats": stats, "top_users": top},
+        {"user": get_current_user(request), "stats": stats, "top_users": top},
     )
 
 
 @app.get("/leaderboard", response_class=HTMLResponse)
 async def leaderboard_page(request: Request):
     users = await get_leaderboard(50)
-    return templates.TemplateResponse(
-        "leaderboard.html", {"request": request, "user": get_current_user(request), "users": users}
+    return render(
+        request,
+        "leaderboard.html",
+        {"user": get_current_user(request), "users": users},
     )
 
 
 @app.get("/stats", response_class=HTMLResponse)
 async def stats_page(request: Request):
     stats = await get_stats()
-    return templates.TemplateResponse(
-        "stats.html", {"request": request, "user": get_current_user(request), "stats": stats}
+    return render(
+        request,
+        "stats.html",
+        {"user": get_current_user(request), "stats": stats},
     )
 
 
@@ -226,9 +233,17 @@ async def callback(request: Request, code: str = None, error: str = None):
 
     manageable = []
     for g in guilds_data:
+        if not isinstance(g, dict):
+            continue
         perms = int(g.get("permissions", 0))
         if (perms & 0x8) or (perms & 0x20):
-            manageable.append(g)
+            manageable.append(
+                {
+                    "id": str(g.get("id", "")),
+                    "name": g.get("name", "Unknown"),
+                    "icon": g.get("icon"),
+                }
+            )
 
     request.session["user"] = {
         "id": str(user_data["id"]),
@@ -257,27 +272,28 @@ async def servers_page(request: Request):
 
     servers = []
     for g in user.get("guilds", []):
-        if str(g["id"]) in bot_guild_ids:
+        if str(g.get("id", "")) in bot_guild_ids:
             servers.append({"id": g["id"], "name": g["name"], "icon": g.get("icon")})
 
-    return templates.TemplateResponse(
+    return render(
+        request,
         "servers.html",
-        {"request": request, "user": user, "servers": servers, "is_owner": is_owner(user)},
+        {"user": user, "servers": servers, "is_owner": is_owner(user)},
     )
 
 
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_money_page(request: Request, money_msg: str = ""):
-    """Global give/remove money page for BOT_OWNER_IDS."""
     user = get_current_user(request)
     if not user:
         return RedirectResponse("/login")
     if not is_owner(user):
         raise HTTPException(403, "Only bot owners can use this page. Set BOT_OWNER_IDS.")
 
-    return templates.TemplateResponse(
+    return render(
+        request,
         "admin.html",
-        {"request": request, "user": user, "money_msg": money_msg},
+        {"user": user, "money_msg": money_msg},
     )
 
 
@@ -321,7 +337,7 @@ async def server_page(request: Request, guild_id: str, saved: int = 0, money_msg
     if not user:
         return RedirectResponse("/login")
 
-    user_guild_ids = {str(g["id"]) for g in user.get("guilds", [])}
+    user_guild_ids = {str(g.get("id", "")) for g in user.get("guilds", [])}
     if guild_id not in user_guild_ids and not is_owner(user):
         raise HTTPException(403, "You don't manage this server")
 
@@ -338,18 +354,23 @@ async def server_page(request: Request, guild_id: str, saved: int = 0, money_msg
 
     if not guild:
         for g in user.get("guilds", []):
-            if str(g["id"]) == guild_id:
-                guild = {"id": g["id"], "name": g["name"], "icon": g.get("icon"), "member_count": None}
+            if str(g.get("id", "")) == guild_id:
+                guild = {
+                    "id": g["id"],
+                    "name": g["name"],
+                    "icon": g.get("icon"),
+                    "member_count": None,
+                }
                 break
 
     if not guild:
         raise HTTPException(404, "Server not found or bot not in it")
 
     settings = await get_guild_settings(int(guild_id))
-    return templates.TemplateResponse(
+    return render(
+        request,
         "server.html",
         {
-            "request": request,
             "user": user,
             "guild": guild,
             "settings": settings,
@@ -372,7 +393,7 @@ async def save_settings(
     if not user:
         return RedirectResponse("/login")
 
-    user_guild_ids = {str(g["id"]) for g in user.get("guilds", [])}
+    user_guild_ids = {str(g.get("id", "")) for g in user.get("guilds", [])}
     if guild_id not in user_guild_ids and not is_owner(user):
         raise HTTPException(403, "You don't manage this server")
 
@@ -392,7 +413,7 @@ async def give_money(
     if not user:
         return RedirectResponse("/login")
 
-    user_guild_ids = {str(g["id"]) for g in user.get("guilds", [])}
+    user_guild_ids = {str(g.get("id", "")) for g in user.get("guilds", [])}
     if guild_id not in user_guild_ids and not is_owner(user):
         raise HTTPException(403, "You don't manage this server")
 
