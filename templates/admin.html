@@ -1,10 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Admin Money • Vibezzzzz{% endblock %}
+{% block title %}Admin • Vibezzzzz{% endblock %}
 {% block content %}
-<h1 class="text-3xl font-bold text-vibe-200 mb-2">💰 Owner Money Tools</h1>
-<p class="text-vibe-400 mb-6">Give or remove vibes from any user (BOT_OWNER_IDS only)</p>
+<h1 class="text-3xl font-bold text-vibe-200 mb-2">👑 Owner Panel</h1>
+<p class="text-vibe-400 mb-6">Money tools + AI personality (BOT_OWNER_IDS only)</p>
 
-<div class="card glow rounded-2xl p-6">
+<div class="card glow rounded-2xl p-6 mb-8">
+  <h2 class="text-xl font-semibold text-vibe-200 mb-4">💰 Give / Remove Vibes</h2>
   <form method="POST" action="/admin/givemoney" class="grid md:grid-cols-3 gap-4 items-end">
     <div>
       <label class="block text-sm text-vibe-400 mb-1">Discord User ID</label>
@@ -26,6 +27,27 @@
   {% if money_msg %}
   <p class="text-green-400 text-sm mt-3">{{ money_msg }}</p>
   {% endif %}
+</div>
+
+<div class="card glow rounded-2xl p-6">
+  <h2 class="text-xl font-semibold text-vibe-200 mb-2">🤖 AI Personality</h2>
+  <p class="text-vibe-400 text-sm mb-4">
+    System prompt for <code class="text-vibe-300">/ask</code> and auto-replies when someone says
+    <strong>chill</strong>, <strong>vibezzzzz</strong>, or <strong>chill vibezzzzz</strong>.
+  </p>
+  <form method="POST" action="/admin/personality">
+    <textarea name="personality" rows="8" required
+              class="w-full bg-black/40 border border-vibe-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-vibe-500 font-mono text-sm"
+              placeholder="You are Vibezzzzz, a chill Discord bot...">{{ personality }}</textarea>
+    <div class="mt-4 flex items-center gap-3">
+      <button type="submit" class="bg-vibe-600 hover:bg-vibe-500 px-5 py-2 rounded-lg font-medium transition">
+        Save Personality
+      </button>
+      {% if personality_msg %}
+      <span class="text-green-400 text-sm">{{ personality_msg }}</span>
+      {% endif %}
+    </div>
+  </form>
 </div>
 
 <div class="mt-6">
