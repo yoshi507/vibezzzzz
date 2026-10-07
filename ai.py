@@ -11,7 +11,7 @@ import aiosqlite
 import httpx
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 DEFAULT_PERSONALITY = (
@@ -102,7 +102,7 @@ async def chat(db_path: str, user_id: int, user_message: str) -> str:
     messages.append({"role": "user", "content": user_message[:2000]})
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=20.0) as client:
             res = await client.post(
                 GROQ_URL,
                 headers={
@@ -113,7 +113,7 @@ async def chat(db_path: str, user_id: int, user_message: str) -> str:
                     "model": GROQ_MODEL,
                     "messages": messages,
                     "temperature": 0.8,
-                    "max_tokens": 500,
+                    "max_tokens": 300,
                 },
             )
             if res.status_code != 200:
