@@ -1,1 +1,1 @@
-placeholder
+@/home/workdir/artifacts/logging_setup.py
