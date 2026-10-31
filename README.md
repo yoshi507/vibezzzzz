@@ -4,7 +4,7 @@ Discord bot (OwO-style economy + moderation + cats + music + dashboard).
 
 ## Run
 
-1. Set env vars (see `.env.example`)
+1. Copy `.env.example` and set tokens
 2. `pip install -r requirements.txt`
 3. `python bot.py`
 
@@ -22,4 +22,4 @@ Discord bot (OwO-style economy + moderation + cats + music + dashboard).
 - `logging_setup.py` — advanced logging
 - `templates/` — dashboard HTML
 
-Optional: `SYNC_GUILD_ID` for instant slash sync · `cookies.txt` for YouTube music
+Optional: `SYNC_GUILD_ID`, `YTDLP_COOKIES`, `GROQ_API_KEY`, `BOT_OWNER_IDS`

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import os
 from collections import defaultdict, deque
-from typing import Deque, Dict, List
+from typing import Deque, Dict, List, Optional
 
 import aiosqlite
 import httpx
@@ -30,44 +30,62 @@ GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 DEFAULT_PERSONALITY = (
-    "You are Vibezzzzz, a chill Discord bot. Keep replies short, friendly, and a bit playful. "
-    "Use light emoji when it fits. Never claim to be human."
+    "You are Vibezzzzz, a chill Discord bot with pure vibes. "
+    "You're laid-back, friendly, a little playful, and you keep things positive. "
+    "Talk casually, use light slang when it fits, and keep replies short (1-3 sentences) "
+    "unless the user asks for more. You're helpful but never stiff or corporate."
 )
 
-_memory: Dict[int, Deque[dict]] = defaultdict(lambda: deque(maxlen=12))
-_personality_cache: str | None = None
+# Per-user memory: last N message pairs (user + assistant)
+MAX_HISTORY = 12
+_memory: Dict[int, Deque[dict]] = defaultdict(lambda: deque(maxlen=MAX_HISTORY * 2))
+
+# Cached personality (reloaded from DB)
+_personality_cache: Optional[str] = None
 
 
 async def ensure_ai_tables(db_path: str) -> None:
     async with aiosqlite.connect(db_path) as db:
         await db.execute(
             """CREATE TABLE IF NOT EXISTS bot_settings (
-                key TEXT PRIMARY KEY, value TEXT
+                key TEXT PRIMARY KEY,
+                value TEXT
             )"""
         )
         await db.commit()
-
-
-async def get_personality(db_path: str) -> str:
-    global _personality_cache
-    if _personality_cache:
-        return _personality_cache
-    await ensure_ai_tables(db_path)
-    async with aiosqlite.connect(db_path) as db:
         async with db.execute(
             "SELECT value FROM bot_settings WHERE key = 'ai_personality'"
         ) as cur:
             row = await cur.fetchone()
-            if row and row[0]:
-                _personality_cache = row[0]
-                return _personality_cache
-    _personality_cache = DEFAULT_PERSONALITY
-    return _personality_cache
+            if row is None:
+                await db.execute(
+                    "INSERT INTO bot_settings (key, value) VALUES ('ai_personality', ?)",
+                    (DEFAULT_PERSONALITY,),
+                )
+                await db.commit()
+
+
+async def get_personality(db_path: str) -> str:
+    global _personality_cache
+    if _personality_cache is not None:
+        return _personality_cache
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            async with db.execute(
+                "SELECT value FROM bot_settings WHERE key = 'ai_personality'"
+            ) as cur:
+                row = await cur.fetchone()
+                if row and row[0]:
+                    _personality_cache = row[0]
+                    return _personality_cache
+    except Exception:
+        pass
+    return DEFAULT_PERSONALITY
 
 
 async def set_personality(db_path: str, text: str) -> None:
     global _personality_cache
-    await ensure_ai_tables(db_path)
+    text = (text or "").strip()[:4000] or DEFAULT_PERSONALITY
     async with aiosqlite.connect(db_path) as db:
         await db.execute(
             """INSERT INTO bot_settings (key, value) VALUES ('ai_personality', ?)
@@ -79,12 +97,16 @@ async def set_personality(db_path: str, text: str) -> None:
     log.info("AI personality updated (%d chars)", len(text))
 
 
-def should_auto_reply(content: str) -> bool:
-    c = (content or "").lower()
-    return "chill" in c or "vibezzzzz" in c or "chill vibezzzzz" in c
+def clear_memory(user_id: int) -> None:
+    _memory.pop(user_id, None)
+
+
+def clear_all_memory() -> None:
+    _memory.clear()
 
 
 async def chat(db_path: str, user_id: int, user_message: str) -> str:
+    """Send a message to Groq with personality + per-user history."""
     if not GROQ_API_KEY:
         log.warning("AI offline — GROQ_API_KEY missing (user_id=%s)", user_id)
         return "⚠️ AI is offline — set `GROQ_API_KEY` on the server."
@@ -140,5 +162,13 @@ async def chat(db_path: str, user_id: int, user_message: str) -> str:
     return reply
 
 
-def clear_memory(user_id: int) -> None:
-    _memory.pop(user_id, None)
+def should_auto_reply(content: str) -> bool:
+    """True if message mentions chill / vibezzzzz triggers."""
+    if not content:
+        return False
+    lower = content.lower()
+    return (
+        "chill vibezzzzz" in lower
+        or "vibezzzzz" in lower
+        or "chill" in lower
+    )
