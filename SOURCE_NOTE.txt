@@ -1,0 +1,14 @@
+Full bot source is too large for automated GitHub API uploads in this environment.
+
+Download the latest complete package:
+- Use the vibezzzzz-github-ready.zip from the bot developer chat
+OR push from your PC:
+
+  unzip vibezzzzz-github-ready.zip
+  cd vibezzzzz_clone
+  git remote add origin https://github.com/yoshi507/vibezzzzz.git
+  git add -A
+  git commit -m "Full source sync"
+  git push -u origin main --force
+
+After a full push, the repo will contain bot.py, web.py, extras.py, etc. as real Python files.
