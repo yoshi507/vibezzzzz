@@ -1,0 +1,28 @@
+     root.addHandler(_make_rotating(MAIN_LOG, logging.INFO, file_fmt))
+        # Errors only
+        root.addHandler(_make_rotating(ERROR_LOG, logging.ERROR, file_fmt))
+        # Commands (dedicated logger handler)
+        cmd_logger = logging.getLogger("vibezzzzz.commands")
+        cmd_h = _make_rotating(COMMANDS_LOG, logging.DEBUG, file_fmt)
+        cmd_logger.addHandler(cmd_h)
+        cmd_logger.propagate = True
+        # AI
+        ai_logger = logging.getLogger("vibezzzzz.ai")
+        ai_h = _make_rotating(AI_LOG, logging.DEBUG, file_fmt)
+        ai_logger.addHandler(ai_h)
+        ai_logger.propagate = True
+
+    # Quiet noisy libraries unless DEBUG
+    if level > logging.DEBUG:
+        for noisy in ("discord", "discord.gateway", "discord.http", "discord.client",
+                      "aiosqlite", "httpx", "httpcore", "uvicorn", "uvicorn.access",
+                      "asyncio"):
+            logging.getLogger(noisy).setLevel(logging.WARNING)
+    else:
+        logging.getLogger("discord").setLevel(logging.INFO)
+        logging.getLogger("httpx").setLevel(logging.INFO)
+
+    _configured = True
+    log = logging.getLogger("vibezzzzz")
+    log.info(
+        "Logging online | level=%s
